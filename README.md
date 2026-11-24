@@ -17,6 +17,8 @@ Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager
 
 **Requirements:** Windows 10/11, PowerShell 5.1, a Wi-Fi adapter that supports Mobile Hotspot (every adapter that shows the Mobile Hotspot toggle in Settings qualifies), and an interactive desktop session.
 
+Running it from **PowerShell 7** is fine: the script notices and relaunches itself under Windows PowerShell 5.1, because PS7 has no CsWinRT projections for the tethering types by default.
+
 ## Install
 
 ```powershell

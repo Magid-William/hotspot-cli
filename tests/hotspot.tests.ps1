@@ -219,6 +219,43 @@ It 'throws on an unknown band' {
     Assert-Throws { ConvertTo-BandName '11' } 'Invalid band'
 }
 
+Write-Host 'Argument parsing' -ForegroundColor Yellow
+
+It 'reads -Uplink when typed in a session (SubAction shape)' {
+    $parsed = Split-CliArguments -SubAction '-Uplink' -Value @('Ethernet')
+    Assert-Equal 'Ethernet' $parsed.Uplink
+    Assert-Equal 0 @($parsed.Clean).Count
+}
+
+It 'reads -Uplink when passed after -File (Value shape)' {
+    $parsed = Split-CliArguments -SubAction '' -Value @('-Uplink', 'Ethernet')
+    Assert-Equal 'Ethernet' $parsed.Uplink
+    Assert-Equal 0 @($parsed.Clean).Count
+}
+
+It 'reads --uplink as well as -Uplink' {
+    $parsed = Split-CliArguments -SubAction '' -Value @('--uplink', 'Ethernet')
+    Assert-Equal 'Ethernet' $parsed.Uplink
+}
+
+It 'keeps subcommand values out of the uplink option' {
+    $parsed = Split-CliArguments -SubAction 'ssid' -Value @('My Network')
+    Assert-Equal $null $parsed.Uplink
+    Assert-Equal 'My Network' (@($parsed.Clean) -join ' ')
+}
+
+It 'handles no arguments at all' {
+    $parsed = Split-CliArguments -SubAction '' -Value @()
+    Assert-Equal $null $parsed.Uplink
+    Assert-Equal 0 @($parsed.Clean).Count
+}
+
+It 'ignores a trailing -Uplink with no value' {
+    $parsed = Split-CliArguments -SubAction '' -Value @('on', '-Uplink')
+    Assert-Equal $null $parsed.Uplink
+    Assert-Equal 'on -Uplink' (@($parsed.Clean) -join ' ')
+}
+
 Write-Host 'Uplink scoring' -ForegroundColor Yellow
 
 It 'scores Ethernet above Wi-Fi' {
@@ -262,6 +299,15 @@ It 'help exits 0' {
     $result = Invoke-Cli @('help')
     Assert-Equal 0 $result.ExitCode
     Assert-Match 'hotspot devices' $result.Output
+}
+
+It 'works when launched from PowerShell 7' {
+    $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+    if (-not $pwsh) { return }
+
+    $output = & $pwsh.Source -NoProfile -File $cliPath 'help' 2>&1
+    Assert-Equal 0 $LASTEXITCODE 'PowerShell 7 run should succeed via the 5.1 relaunch'
+    Assert-Match 'Windows Mobile Hotspot from the command line' ($output | Out-String)
 }
 
 It 'unknown command prints help and exits 1' {
@@ -325,6 +371,21 @@ if ($Integration) {
         It 'devices exits cleanly' {
             $result = Invoke-Cli @('devices')
             Assert-Equal 0 $result.ExitCode
+        }
+
+        It 'status works when launched from PowerShell 7' {
+            $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+            if (-not $pwsh) { return }
+
+            $output = & $pwsh.Source -NoProfile -File $cliPath 'status' 2>&1
+            Assert-Equal 0 $LASTEXITCODE
+            Assert-Match 'State\s+:\s+(On|Off)' ($output | Out-String)
+        }
+
+        It 'honours -Uplink when typed in a session shape' {
+            $result = Invoke-Cli @('on', '-Uplink', 'NoSuchProfile')
+            Assert-Equal 1 $result.ExitCode
+            Assert-Match 'No internet-capable uplink named' $result.Output
         }
 
         It 'rejects an unknown uplink without changing state' {

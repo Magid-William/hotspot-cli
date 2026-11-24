@@ -26,6 +26,27 @@ $ProgressPreference = 'SilentlyContinue'
 $script:ApAddress = '192.168.137.1'
 $script:RepoUrl = 'https://github.com/Magid-William/hotspot-cli'
 
+# ------------------------------------------------------------ host bootstrap
+# The WinRT tethering API is only reachable from Windows PowerShell 5.1.
+# PowerShell 7 has no CsWinRT projections for these types by default, so the
+# type literals fail. Relaunch under 5.1 and forward the arguments unchanged.
+if ($PSVersionTable.PSEdition -eq 'Core' -and $env:HOTSPOT_CLI_LIB -ne '1') {
+
+    $legacy = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (-not (Test-Path $legacy)) {
+        Write-Host 'error: Windows PowerShell 5.1 is required but was not found.' -ForegroundColor Red
+        exit 1
+    }
+
+    $forward = @()
+    if ($PSBoundParameters.ContainsKey('Action')) { $forward += $Action }
+    if ($PSBoundParameters.ContainsKey('SubAction')) { $forward += $SubAction }
+    if ($PSBoundParameters.ContainsKey('Value')) { $forward += $Value }
+
+    & $legacy -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @forward
+    exit $LASTEXITCODE
+}
+
 # ---------------------------------------------------------------- WinRT glue
 
 function Initialize-WinRT {
@@ -366,6 +387,38 @@ function Format-MacAddress {
     $normalized.ToUpperInvariant() -replace '(.{2})(?!$)', '$1:'
 }
 
+# Separates the -Uplink option from positional values. The arguments arrive in
+# two different shapes depending on how the script was invoked, so both are
+# normalised here: typing `hotspot on -Uplink Ethernet` in a session binds
+# '-Uplink' to SubAction, while the same words after -File land in Value.
+function Split-CliArguments {
+    param(
+        [string]$SubAction,
+        [string[]]$Value
+    )
+
+    $arguments = @()
+    if ($SubAction -and $SubAction.StartsWith('-')) { $arguments += $SubAction }
+    if ($Value) { $arguments += $Value }
+
+    $clean = @()
+    $uplink = $null
+
+    for ($i = 0; $i -lt $arguments.Count; $i++) {
+        if ($arguments[$i] -match '^--?uplink$' -and ($i + 1) -lt $arguments.Count) {
+            $uplink = $arguments[$i + 1]
+            $i++
+            continue
+        }
+        $clean += $arguments[$i]
+    }
+
+    [pscustomobject]@{
+        Clean  = $clean
+        Uplink = $uplink
+    }
+}
+
 # ---------------------------------------------------------------- logon task
 
 $script:LogonTaskName = 'hotspot-cli'
@@ -507,20 +560,14 @@ function Invoke-Main {
         Initialize-WinRT
 
     $uplinkName = $null
-    $arguments = @()
-    if ($Value) { $arguments = @($Value) }
 
-    # tiny option parser: --uplink / -Uplink
-    $clean = @()
-    for ($i = 0; $i -lt $arguments.Count; $i++) {
-        $arg = $arguments[$i]
-        if ($arg -match '^--?uplink$' -and ($i + 1) -lt $arguments.Count) {
-            $uplinkName = $arguments[$i + 1]
-            $i++
-            continue
-        }
-        $clean += $arg
-    }
+    # Arguments bind differently depending on how we were invoked:
+    #   typed in a session : hotspot on -Uplink Ethernet -> SubAction='-Uplink', Value='Ethernet'
+    #   via -File          : ... on -Uplink Ethernet    -> Value='-Uplink','Ethernet'
+    # Split-CliArguments normalises both shapes.
+    $parsed = Split-CliArguments -SubAction $SubAction -Value $Value
+    $uplinkName = $parsed.Uplink
+    $clean = @($parsed.Clean)
 
     switch ($Action.ToLowerInvariant()) {
 
