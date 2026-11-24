@@ -15,7 +15,7 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Position = 0)][string]$Action = 'status',
+    [Parameter(Position = 0)][string]$Action = 'help',
     [Parameter(Position = 1)][string]$SubAction,
     [Parameter(Position = 2, ValueFromRemainingArguments = $true)][string[]]$Value
 )
@@ -90,11 +90,7 @@ function Get-UplinkCandidates {
         if ($adapter.IanaInterfaceType -eq 53) { continue }
         if ($profile.GetNetworkConnectivityLevel() -ne 'InternetAccess') { continue }
 
-        $score = switch ($adapter.IanaInterfaceType) {
-            6 { 30 }   # Ethernet
-            71 { 20 }  # Wi-Fi
-            default { 10 }
-        }
+        $score = Get-UplinkScore -IanaType $adapter.IanaInterfaceType
 
         $out += [pscustomobject]@{
             Name    = $profile.ProfileName
@@ -325,6 +321,51 @@ function New-RandomPassphrase {
     "$chars!7"
 }
 
+# ---------------------------------------------------------------- validation
+
+function Test-ValidSsid {
+    param([string]$Name)
+    if (-not $Name) { return $false }
+    $Name.Trim().Length -ge 1 -and $Name.Trim().Length -le 32
+}
+
+function Test-ValidPassphrase {
+    param([string]$Pass)
+    if (-not $Pass) { return $false }
+    $Pass.Length -ge 8 -and $Pass.Length -le 63
+}
+
+function ConvertTo-BandName {
+    param([string]$Value)
+    switch (("$Value").Trim().ToLowerInvariant()) {
+        '2.4' { 'TwoPointFourGigahertz' }
+        '2.4ghz' { 'TwoPointFourGigahertz' }
+        '5' { 'FiveGigahertz' }
+        '5ghz' { 'FiveGigahertz' }
+        '6' { 'SixGigahertz' }
+        '6ghz' { 'SixGigahertz' }
+        'auto' { 'Auto' }
+        default { throw "Invalid band '$Value'. Use 2.4, 5, 6 or auto." }
+    }
+}
+
+# Ethernet wins, then Wi-Fi, then anything else.
+function Get-UplinkScore {
+    param([int]$IanaType)
+    switch ($IanaType) {
+        6 { 30 }
+        71 { 20 }
+        default { 10 }
+    }
+}
+
+function Format-MacAddress {
+    param([string]$Mac)
+    $normalized = Get-NormalizedMac $Mac
+    if (-not $normalized) { return '' }
+    $normalized.ToUpperInvariant() -replace '(.{2})(?!$)', '$1:'
+}
+
 # ---------------------------------------------------------------- logon task
 
 $script:LogonTaskName = 'hotspot-cli'
@@ -362,7 +403,7 @@ function Disable-LogonAutostart {
 
 # ----------------------------------------------------------------------- help
 
-function Write-Help {
+function Get-HelpText {
     @"
 
 hotspot - Windows Mobile Hotspot from the command line
@@ -376,7 +417,7 @@ hotspot - Windows Mobile Hotspot from the command line
   hotspot update password [pass] set the password (random if omitted)
   hotspot update band <2.4|5|6|auto>
   hotspot logon on|off           start the hotspot automatically at logon
-  hotspot help                   this text
+  hotspot help                   this text (also shown when run with no command)
 
 Options
   hotspot on -Uplink "Ethernet"  force a specific uplink profile
@@ -391,13 +432,18 @@ Notes
 
   $($script:RepoUrl)
 
-"@ | Write-Host
+"@
+}
+
+function Write-Help {
+    Get-HelpText | Write-Host
 }
 
 # ----------------------------------------------------------------------- main
 
-try {
-    Initialize-WinRT
+function Invoke-Main {
+    try {
+        Initialize-WinRT
 
     $uplinkName = $null
     $arguments = @()
@@ -464,7 +510,7 @@ try {
                 'ssid' {
                     $newSsid = ($clean -join ' ').Trim()
                     if (-not $newSsid) { throw 'Usage: hotspot update ssid <name>  (1-32 characters)' }
-                    if ($newSsid.Length -gt 32) { throw "SSID must be 1-32 characters (got $($newSsid.Length))." }
+                    if (-not (Test-ValidSsid $newSsid)) { throw "SSID must be 1-32 characters (got $($newSsid.Length))." }
                     Set-AccessPoint -Manager $manager -Ssid $newSsid
                 }
                 'password' {
@@ -473,22 +519,11 @@ try {
                         $newPass = New-RandomPassphrase
                         Write-Host "Generated password: $newPass"
                     }
-                    if ($newPass.Length -lt 8) { throw 'Password must be at least 8 characters.' }
-                    if ($newPass.Length -gt 63) { throw 'Password must be at most 63 characters.' }
+                    if (-not (Test-ValidPassphrase $newPass)) { throw 'Password must be 8-63 characters.' }
                     Set-AccessPoint -Manager $manager -Passphrase $newPass
                 }
                 'band' {
-                    $bandArg = ($clean -join ' ').Trim()
-                    $band = switch ($bandArg.ToLowerInvariant()) {
-                        '2.4' { 'TwoPointFourGigahertz' }
-                        '2.4ghz' { 'TwoPointFourGigahertz' }
-                        '5' { 'FiveGigahertz' }
-                        '5ghz' { 'FiveGigahertz' }
-                        '6' { 'SixGigahertz' }
-                        '6ghz' { 'SixGigahertz' }
-                        'auto' { 'Auto' }
-                        default { throw 'Usage: hotspot update band <2.4|5|6|auto>' }
-                    }
+                    $band = ConvertTo-BandName (($clean -join ' ').Trim())
                     Set-AccessPoint -Manager $manager -Band $band
                 }
                 default { throw "Unknown update target '$SubAction'. Use ssid, password or band." }
@@ -511,13 +546,20 @@ try {
         default {
             Write-Host "Unknown command '$Action'."
             Write-Help
-            exit 1
+            return 1
         }
     }
 
-    exit 0
+    return 0
 }
 catch {
     Write-Host "error: $($_.Exception.Message)" -ForegroundColor Red
-    exit 1
+    return 1
+}
+}
+
+# Dot-sourcing with HOTSPOT_CLI_LIB=1 loads the functions without running the
+# CLI, which is how tests/hotspot.tests.ps1 works.
+if ($env:HOTSPOT_CLI_LIB -ne '1') {
+    exit (Invoke-Main)
 }

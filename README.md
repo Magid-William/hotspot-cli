@@ -52,7 +52,7 @@ Or just run it in place:
 | `hotspot update password [pass]` | Set the password; generates a random 15-char one if omitted |
 | `hotspot update band <2.4\|5\|6\|auto>` | Pick the radio band |
 | `hotspot logon on\|off` | Start the hotspot automatically ~45s after you sign in |
-| `hotspot help` | Usage |
+| `hotspot help` | Usage (also what you get for bare `hotspot`) |
 
 Force a specific uplink profile:
 
@@ -83,6 +83,24 @@ So with WARP connected and a cable plugged in, it shares the cable.
 There is deliberately **no boot-time ("at startup") option**. The tethering API needs a logged-in desktop session with a running Wi-Fi stack, so a SYSTEM/service context cannot start it. `logon` is the earliest point that actually works.
 
 Remove it with `hotspot logon off`.
+
+## Tests
+
+No Pester needed (Windows only ships the ancient 3.4.0), no network access, works on PowerShell 5.1 and 7:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\hotspot.tests.ps1
+```
+
+36 unit tests covering MAC normalisation, password generation, SSID/passphrase validation, band mapping, uplink scoring, help text and CLI exit codes.
+
+The integration suite actually stops and starts the hotspot, so it drops connected clients and is opt-in:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\hotspot.tests.ps1 -Integration
+```
+
+It captures the starting state and puts it back in a `finally` block, so you are left with the hotspot exactly as you found it.
 
 ## Troubleshooting
 
