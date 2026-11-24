@@ -52,6 +52,7 @@ Or just run it in place:
 | `hotspot update password [pass]` | Set the password; generates a random 15-char one if omitted |
 | `hotspot update band <2.4\|5\|6\|auto>` | Pick the radio band |
 | `hotspot logon on\|off` | Start the hotspot automatically ~45s after you sign in |
+| `hotspot uninstall` | Remove the installed copy and the logon task |
 | `hotspot help` | Usage (also what you get for bare `hotspot`) |
 
 Force a specific uplink profile:
@@ -122,7 +123,15 @@ Will not work. Needs an interactive session.
 ## Uninstall
 
 ```powershell
-hotspot logon off
+hotspot uninstall
+```
+
+Removes the installed `hotspot.ps1` / `hotspot.cmd` and the `hotspot-cli` logon task if it exists. It leaves `%USERPROFILE%\bin` on your `PATH` (that folder is yours, not ours) and does not stop a hotspot that is currently running.
+
+If you want to do it by hand, or the tool is already gone:
+
+```powershell
+schtasks /delete /tn hotspot-cli /f
 Remove-Item "$env:USERPROFILE\bin\hotspot.ps1", "$env:USERPROFILE\bin\hotspot.cmd"
 ```
 

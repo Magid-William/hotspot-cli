@@ -401,6 +401,66 @@ function Disable-LogonAutostart {
     }
 }
 
+# ------------------------------------------------------------------ uninstall
+
+function Get-InstallDirectory {
+    $root = $PSScriptRoot
+    # When run straight out of the repo, uninstall the installed copy instead
+    # of deleting the source we are executing from.
+    if (Test-Path (Join-Path $root '.git')) {
+        return (Join-Path $env:USERPROFILE 'bin')
+    }
+    $root
+}
+
+function Uninstall-HotspotCli {
+    $directory = Get-InstallDirectory
+    Write-Host "Uninstalling from $directory"
+
+    if (Test-LogonAutostart) { Disable-LogonAutostart }
+    else { Write-Host 'Logon task is not set.' }
+
+    $removed = 0
+    $deferred = @()
+
+    if (Test-Path $directory) {
+        foreach ($name in 'hotspot.ps1', 'hotspot.cmd') {
+            $path = Join-Path $directory $name
+            if (-not (Test-Path $path)) { continue }
+
+            try {
+                Remove-Item $path -Force -ErrorAction Stop
+                $removed++
+                Write-Host "removed $path"
+            }
+            catch {
+                # PowerShell keeps a handle on the running script on some builds.
+                $deferred += $path
+            }
+        }
+    }
+
+    if ($deferred.Count -gt 0) {
+        $commands = $deferred | ForEach-Object { 'del /f /q "{0}"' -f $_ }
+        $command = 'ping -n 3 127.0.0.1 >nul & ' + ($commands -join ' & ')
+        Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\cmd.exe') -ArgumentList "/c $command" -WindowStyle Hidden
+        foreach ($path in $deferred) { Write-Host "queued for deletion: $path (locked by this session)" }
+    }
+
+    if ($removed -eq 0 -and $deferred.Count -eq 0) {
+        Write-Host 'No hotspot-cli files found.'
+    }
+
+    $state = 'unknown'
+    try { $state = Get-HotspotState -Manager (Get-TetheringManager -Uplink (Resolve-Uplink)) } catch { }
+
+    Write-Host ''
+    Write-Host "Left $directory on your PATH (that folder is yours, not ours)."
+    if ($state -eq 'On') {
+        Write-Host 'The hotspot is still running. Stop it in Settings > Mobile hotspot if you do not want it.'
+    }
+}
+
 # ----------------------------------------------------------------------- help
 
 function Get-HelpText {
@@ -417,6 +477,7 @@ hotspot - Windows Mobile Hotspot from the command line
   hotspot update password [pass] set the password (random if omitted)
   hotspot update band <2.4|5|6|auto>
   hotspot logon on|off           start the hotspot automatically at logon
+  hotspot uninstall              remove the installed copy and logon task
   hotspot help                   this text (also shown when run with no command)
 
 Options
@@ -537,6 +598,10 @@ function Invoke-Main {
                 '' { Write-Host "Logon task: $(if (Test-LogonAutostart) { 'on' } else { 'off' })" }
                 default { throw 'Usage: hotspot logon <on|off>' }
             }
+        }
+
+        'uninstall' {
+            Uninstall-HotspotCli
         }
 
         'help' { Write-Help }

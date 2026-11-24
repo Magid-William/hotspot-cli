@@ -241,7 +241,7 @@ Write-Host 'Help output' -ForegroundColor Yellow
 
 It 'documents every command' {
     $help = Get-HelpText
-    foreach ($command in 'on', 'off', 'restart', 'status', 'devices', 'update ssid', 'update password', 'update band', 'logon', 'help') {
+    foreach ($command in 'on', 'off', 'restart', 'status', 'devices', 'update ssid', 'update password', 'update band', 'logon', 'uninstall', 'help') {
         Assert-Match ([regex]::Escape($command)) $help "missing '$command'"
     }
 }
@@ -343,6 +343,37 @@ if ($Integration) {
             $result = Invoke-Cli @('update', 'password', 'short')
             Assert-Equal 1 $result.ExitCode
             Assert-Match '8-63 characters' $result.Output
+        }
+
+        It 'uninstall removes the installed files and the logon task' {
+            if (Test-LogonAutostart) {
+                Write-Host '        (skipped: a real logon task is enabled, refusing to touch it)' -ForegroundColor DarkGray
+                return
+            }
+
+            $tempDir = Join-Path $env:TEMP ('hotspot-uninstall-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            Copy-Item $cliPath (Join-Path $tempDir 'hotspot.ps1')
+            Copy-Item (Join-Path $repoRoot 'hotspot.cmd') (Join-Path $tempDir 'hotspot.cmd')
+
+            # stand in for a real autostart entry so the removal path is exercised
+            $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c exit'
+            $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+            Register-ScheduledTask -TaskName 'hotspot-cli' -Action $action -Trigger $trigger -Force | Out-Null
+
+            try {
+                $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+                $output = & $exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $tempDir 'hotspot.ps1') uninstall 2>&1
+                Assert-Equal 0 $LASTEXITCODE
+                Assert-False (Test-Path (Join-Path $tempDir 'hotspot.ps1')) 'hotspot.ps1 should be deleted'
+                Assert-False (Test-Path (Join-Path $tempDir 'hotspot.cmd')) 'hotspot.cmd should be deleted'
+                Assert-False (Test-LogonAutostart) 'logon task should be gone'
+                Assert-Match 'Uninstalling from' (($output | Out-String))
+            }
+            finally {
+                Unregister-ScheduledTask -TaskName 'hotspot-cli' -Confirm:$false -ErrorAction SilentlyContinue
+                Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
     }
     finally {
