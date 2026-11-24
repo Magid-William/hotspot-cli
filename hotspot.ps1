@@ -24,7 +24,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $script:ApAddress = '192.168.137.1'
-$script:AnnouncedStartupUrl = 'https://github.com/Maged-William/hotspot-cli'
+$script:RepoUrl = 'https://github.com/Magid-William/hotspot-cli'
 
 # ---------------------------------------------------------------- WinRT glue
 
@@ -389,7 +389,7 @@ Notes
   * A client that keeps asking for the password, or spins on "obtaining IP",
     usually needs the network forgotten and re-added on the phone.
 
-  $($script:AnnouncedStartupUrl)
+  $($script:RepoUrl)
 
 "@ | Write-Host
 }

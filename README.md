@@ -20,7 +20,7 @@ Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager
 ## Install
 
 ```powershell
-git clone https://github.com/Maged-William/hotspot-cli.git
+git clone https://github.com/Magid-William/hotspot-cli.git
 cd hotspot-cli
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
@@ -50,7 +50,7 @@ Or just run it in place:
 | `hotspot devices` | Connected devices: MAC, IP, hostname |
 | `hotspot update ssid <name>` | Rename the network (1-32 chars) |
 | `hotspot update password [pass]` | Set the password; generates a random 15-char one if omitted |
-| `hotspot update band <2.4\|5\|auto>` | Pick the radio band |
+| `hotspot update band <2.4\|5\|6\|auto>` | Pick the radio band |
 | `hotspot logon on\|off` | Start the hotspot automatically ~45s after you sign in |
 | `hotspot help` | Usage |
 
